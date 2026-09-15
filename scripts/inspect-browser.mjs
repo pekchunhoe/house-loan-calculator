@@ -1,0 +1,16 @@
+import { chromium } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+await mkdir('artifacts', { recursive: true });
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+const errors = [];
+page.on('pageerror', e => errors.push(e.message));
+await page.goto('http://127.0.0.1:5173');
+await page.waitForSelector('#balance-chart svg');
+await page.screenshot({ path: 'artifacts/desktop.png', fullPage: true });
+console.log(JSON.stringify({ title: await page.title(), payoff: await page.locator('#payoff-date').textContent(), errors, overflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth) }));
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(200);
+await page.screenshot({ path: 'artifacts/mobile.png', fullPage: true });
+console.log(JSON.stringify({ mobileOverflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth) }));
+await browser.close();
