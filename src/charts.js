@@ -3,7 +3,7 @@ const colors = { green: '#39694d', gray: '#aab49f', orange: '#d7a575', grid: '#e
 function svg(width, height, title, content) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}"><title>${escapeHtml(title)}</title>${content}</svg>`;
 }
-function lineChart(el, series, title) {
+export function lineChart(el, series, title) {
   const width = Math.max(230, el.clientWidth), height = 208;
   const pad = { left: 47, right: 13, top: 20, bottom: 28 };
   const w = width - pad.left - pad.right, h = height - pad.top - pad.bottom;
@@ -27,9 +27,9 @@ function lineChart(el, series, title) {
   }
   for (const s of series) {
     if (!s.points.length) continue;
-    const stride = Math.max(1, Math.floor(s.points.length / 160));
+    const stride = s.step ? 1 : Math.max(1, Math.floor(s.points.length / 160));
     const points = s.points.filter((_, i) => i % stride === 0 || i === s.points.length - 1);
-    const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(2)},${y(p[1]).toFixed(2)}`).join(' ');
+    const path = points.map((p, i) => i && s.step ? `H${x(p[0]).toFixed(2)} V${y(p[1]).toFixed(2)}` : `${i ? 'L' : 'M'}${x(p[0]).toFixed(2)},${y(p[1]).toFixed(2)}`).join(' ');
     if (s.fill) content += `<path d="${path} L${x(points.at(-1)[0])},${y(0)} L${x(points[0][0])},${y(0)} Z" fill="${s.color}" opacity=".055"/>`;
     content += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="2.3" ${s.dashed ? 'stroke-dasharray="5 5"' : ''} stroke-linecap="round" stroke-linejoin="round"/>`;
     const last = points.at(-1); content += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="3.2" fill="${s.color}" stroke="#fff" stroke-width="1.5"/>`;

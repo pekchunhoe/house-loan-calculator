@@ -1,14 +1,15 @@
 import { calculate, validate, yearlySchedule } from './engine.js';
 import { effectiveBalance } from './flexi.js';
 import { compare, extraScenarios, solveTarget, fixedConfig } from './scenarios.js';
-import { load, save, defaults } from './persistence.js';
+import { defaults } from './persistence.js';
 import { money, monthDate, fullDate, duration, escapeHtml as esc } from './format.js';
 import { firstPayment, nextPayment, parseDate, iso, monthsBetween } from './dates.js';
 import { summary, downloadSchedule } from './export.js';
 import { renderBalance, renderComposition, renderSavings } from './charts.js';
+import { getSelectedLoan, saveSelected, loadedPortfolio } from './session.js';
 
 const $ = selector => document.querySelector(selector);
-const loaded = load();
+const loaded = { state: structuredClone(getSelectedLoan()?.config || defaults()), restored: loadedPortfolio.restored, warning: loadedPortfolio.warning };
 let state = loaded.state, comparison, scenarios, targetResult, budgetResult, summaryText = '', scheduleView = 'monthly', rowLimit = 24, printMode = false, updateTimer, toastTimer, assumptionsWereOpen = false;
 const formFields = ['principal', 'rate', 'normal', 'extra', 'start', 'paymentDay', 'method', 'flexi', 'offset'];
 $('#paymentDay').innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}${i === 0 || i === 20 || i === 30 ? 'st' : i === 1 || i === 21 ? 'nd' : i === 2 || i === 22 ? 'rd' : 'th'} of the month</option>`).join('');
@@ -22,7 +23,7 @@ function toast(message) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 4000);
 }
 function persist() {
-  const ok = save(state);
+  const ok = saveSelected(state);
   $('#save-status').textContent = ok ? 'Saved on this device' : 'Browser storage unavailable — keep this page open or export your plan.';
 }
 function changed() {
@@ -37,6 +38,13 @@ function renderFlexi() {
 }
 function update() {
   renderFlexi();
+  if (state.principal !== '' && Number(state.principal) === 0) {
+    comparison = null; $('#validation').hidden = false; $('#validation').textContent = 'Settled — this loan has zero outstanding principal. Its history is retained in your portfolio.';
+    $('#result-content').hidden = true; $('#lower-results').hidden = true;
+    $('#schedule-table').innerHTML = '<p class="empty-editor">No future payments for this settled loan.</p>';
+    document.querySelectorAll('[data-action="csv"], [data-action="copy"], [data-action="print"]').forEach(b => b.disabled = true);
+    return;
+  }
   const errors = validate(state);
   $('#validation').hidden = errors.length === 0;
   $('#result-content').hidden = errors.length > 0; $('#lower-results').hidden = errors.length > 0;
@@ -196,5 +204,9 @@ window.addEventListener('afterprint', () => { printMode = false; $('.assumptions
 let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawCharts, 120); });
 syncFields(); update();
+export function selectLoanState(config) {
+  clearTimeout(updateTimer); updateTimer = null; state = structuredClone(config); rowLimit = 24;
+  syncFields(); update();
+}
 if (loaded.warning) toast(loaded.warning);
 else $('#save-status').textContent = loaded.restored ? 'Your saved plan has been restored' : 'Demo values — edit any field to make this your plan';

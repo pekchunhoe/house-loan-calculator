@@ -1,6 +1,47 @@
-# Flexi Home Mortgage Payoff Calculator
+# Flexi Mortgage Portfolio & Payoff Calculator
 
-A mobile-friendly, standalone mortgage planner for Malaysian ringgit. All calculations and saved data stay in the browser. No backend, runtime framework, external fonts, chart services or analytics are used.
+A mobile-friendly, standalone mortgage portfolio planner for Malaysian ringgit. All calculations and saved data stay in the browser. No backend, runtime framework, external fonts, chart services or analytics are used.
+
+## Multi-loan portfolio
+
+One loan opens in the familiar individual calculator. Use **My Housing Loans** or **Add Housing Loan** to manage loans. With multiple saved loans, the app opens the portfolio dashboard. Every loan has its own name, bank, optional property/reference, original-loan information, notes, calculation settings and dated transactions.
+
+The Dashboard, Loans, Strategies, Timeline, Reports and Settings tabs provide:
+
+- Independent loan cards, sorting, duplication, archive/restore and confirmed deletion.
+- Aggregated principal, payments, flexi funds, future interest, payoff dates and cash-flow budget.
+- Portfolio and individual balance lines, loan interest/payment breakdowns, and an expandable yearly report.
+- Highest-rate-first, lowest-balance-first, equal, proportional and custom additional-payment simulations, with optional rollover.
+- An iterative target portfolio budget solver; individual target solvers remain available inside each loan.
+- Isolated lump-sum, flexi transfer and rate-shock previews. **Apply Scenario** is required to change saved events or rate assumptions. Editing an input invalidates its old preview.
+- Optional property records shared by multiple mortgages.
+- Versioned JSON backups with validation and confirmation before import, portfolio CSV, clipboard summary and a printable portfolio report.
+
+Bank names are labels, not rule selectors. Original amount, rate, tenure, start date and instalment are informational only. Free-text bank assumptions are notes; they do not introduce additional financial formulas.
+
+### Portfolio architecture and timing
+
+`src/engine.js` remains the sole mortgage formula implementation. It now exposes its existing event loop as `loanSimulation()`, a resumable stream. `calculate()` runs that same stream with no portfolio additions, preserving prior results. The portfolio coordinator interleaves separate streams by date and supplies only the allocated extra cash. Principal is never combined before calculating interest; the weighted average current rate is for reporting only.
+
+Each loan still has monthly scheduled payments. Daily/monthly selects the interest method, not a new payment frequency. Allocation envelopes are determined once per calendar month for loans with a payment due that month, using their current balance and month-start rate. Additional amounts are paid on the recipient's own scheduled payment day, on top of any existing variable override. Configured normal plus fixed extra payments from settled loans are available for rollover **from the following month**. Unused money from a capped final payment is not spent again within that month. The same additional budget remains available in later months; rollover does not count it twice.
+
+Custom allocation uses the entered total, which may be below the available budget. After a simulated settlement, it distributes that total and any rollover among remaining custom weights; if all remaining weights are zero, it splits equally. The target solver scales custom weights and solves for the additional amount while retaining existing payments and dated events. A strategy may require multiple calendar cycles even when a very large budget is available; impossible targets show an error.
+
+Lump sums follow the selected dated allocation. Priority lump sums fill a loan's debt and spill the remainder to the next loan. Excess over all debt stays unused. Flexi transfers use dated withdrawal/deposit events and cannot transfer unavailable cash, including a parked lump sum that posts later on the same day. Rate shocks shift both the entered starting rate and that loan's future scheduled rates; rates must remain within 0–100%.
+
+Different loan start dates are supported as independent snapshots. For combined charts/yearly reports, each entered principal is held constant before its own start date. Portfolio durations are measured from the earliest calculation start. Unsettled loans keep their scheduled cash flow through their 100-year projection horizon; portfolio payoff and full future interest remain unavailable when any active loan does not settle. Charts show principal, excluding separately carried unpaid interest.
+
+Projected payoff never silently retires a saved loan. Enter actual principal zero or choose Settled to retain the previous configuration in history and exclude that loan from future portfolio totals. Archive also excludes a loan without deleting its data. There is no application limit on loan count, subject to browser storage and memory.
+
+### Storage migration and privacy
+
+The new key is `flexi-mortgage-portfolio-v2`, with `schemaVersion: 2`. A prior `flexi-mortgage-v1` record, a `singleLoanState` record, or wrapped legacy state migrates into the first loan named **Home Loan** unless it already has a name. All calculation fields are retained. The legacy record is deliberately left untouched. Invalid/future saved schemas block automatic overwriting and show a recovery warning. Subsequent edits and imports use the v2 key.
+
+Backups include optional account references and notes. They are downloaded directly from the browser, never uploaded by the app. Import is validated before confirmation and does not replace saved data until the user confirms. Simulations run in a local module worker; unchanged individual schedules are memoized.
+
+### Portfolio verification
+
+**121 tests pass:** the unchanged original 42 engine/storage tests and 15 browser tests, plus 43 portfolio engine/storage tests and 21 portfolio browser tests. See [PORTFOLIO_VERIFICATION.md](./PORTFOLIO_VERIFICATION.md) for the complete completion checklist, manual two-/three-loan checks, mobile sizes, assumptions and file inventory. The earlier single-loan verification remains in [VERIFICATION.md](./VERIFICATION.md).
 
 ## Run locally
 

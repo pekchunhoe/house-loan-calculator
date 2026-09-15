@@ -38,7 +38,16 @@ export function validate(c) {
  * Monthly mode prorates annualRate/12 across actual days in each payment cycle.
  * Thus a full unchanged cycle earns exactly balance * annualRate/12.
  */
-export function calculate(config, { maxMonths = 1200, endDate, includeRows = true } = {}) {
+export function calculate(config, { maxMonths = 1200, endDate, includeRows = true, allowFuturePayments = false } = {}) {
+  const simulation = loanSimulation(config, { maxMonths, endDate, includeRows, allowFuturePayments });
+  let step = simulation.next();
+  while (!step.done) step = simulation.next(0);
+  return step.value;
+}
+
+// A resumable version of the SAME ledger. Portfolio orchestration supplies only
+// extra cash at monthly events; all interest, timing and allocation formulas stay here.
+export function* loanSimulation(config, { maxMonths = 1200, endDate, includeRows = true, allowFuturePayments = false } = {}) {
   const errors = validate(config);
   if (errors.length) return { status: 'invalid', errors, rows: [], warnings: [] };
   const c = config, start = parseDate(c.start), day = Number(c.paymentDay);
@@ -77,6 +86,8 @@ export function calculate(config, { maxMonths = 1200, endDate, includeRows = tru
     const nextEvent = events[index]?.time ?? Infinity;
     const at = Math.min(due, nextEvent, limit);
     if (at < current || !Number.isFinite(at)) break;
+    const addedPayment = Number((yield { date: iso(at), time: at, monthly: at === due, due: iso(due), principal, accrued, flexi, rate: rate * 100 }) ?? 0);
+    if (!Number.isFinite(addedPayment) || addedPayment < 0) throw new Error('Additional payment must be non-negative.');
     accrue(at);
     while (events[index]?.time === at && (principal > EPS || accrued > EPS)) {
       const event = events[index++];
@@ -91,14 +102,14 @@ export function calculate(config, { maxMonths = 1200, endDate, includeRows = tru
     }
     if (at === due && (principal > EPS || accrued > EPS)) {
       const override = variables.get(iso(due).slice(0, 7));
-      record('Monthly payment', Number(override?.normal ?? c.normal), Number(override?.extra ?? c.extra));
+      record('Monthly payment', Number(override?.normal ?? c.normal), Number(override?.extra ?? c.extra) + addedPayment);
       monthlyCount++;
       const debt = principal + accrued;
       stagnant = debt >= previousDebt - EPS ? stagnant + 1 : 0;
       previousDebt = debt;
       if (accrued > EPS) warnings.add('Some payments do not cover accrued interest. Unpaid interest is carried separately without compounding.');
       cycleStart = due; due = nextPayment(due, day);
-      if (stagnant >= 12 && index >= events.length && iso(current).slice(0, 7) >= lastVariable) break;
+      if (!allowFuturePayments && stagnant >= 12 && index >= events.length && iso(current).slice(0, 7) >= lastVariable) break;
     }
     if (at === limit) break;
   }
