@@ -1,19 +1,21 @@
+import { initializeCalibration, validateCalibration } from './calibrationStore.js';
 import { defaults } from './persistence.js';
 import { validate } from './engine.js';
-export const PORTFOLIO_KEY = 'flexi-mortgage-portfolio-v2';
+export const PORTFOLIO_KEY = 'flexi-mortgage-portfolio-v3';
+export const V2_KEY = 'flexi-mortgage-portfolio-v2';
 export const COLORS = ['#285b48', '#336eac', '#aa5b27', '#85579d', '#327e85', '#a84466', '#7b7429', '#465b9a'];
 export const clone = value => structuredClone(value);
 export const uid = () => globalThis.crypto.randomUUID();
 export function createLoan(config = defaults(), metadata = {}, index = 0) {
-  return { id: uid(), name: 'Home Loan', bank: '', propertyId: '', propertyName: '', accountReference: '', status: config.principal !== '' && config.principal !== null && Number(config.principal) === 0 ? 'settled' : 'active', color: COLORS[index % COLORS.length], original: { amount: '', start: '', tenure: '', rate: '', normal: '' }, assumptions: '', notes: '', history: [], ...metadata, config: clone(config) };
+  return initializeCalibration({ id: uid(), name: 'Home Loan', bank: '', propertyId: '', propertyName: '', accountReference: '', status: config.principal !== '' && config.principal !== null && Number(config.principal) === 0 ? 'settled' : 'active', color: COLORS[index % COLORS.length], original: { amount: '', start: '', tenure: '', rate: '', normal: '' }, assumptions: '', notes: '', history: [], ...metadata, config: clone(config) });
 }
 export function createPortfolio(loan = createLoan()) {
-  return { schemaVersion: 2, id: uid(), name: 'My Mortgage Portfolio', selectedLoanId: loan.id, loans: [loan], properties: [], settings: { householdBudget: '', additional: 2000, strategy: 'highest-rate', rollover: true, custom: {}, target: defaults().target } };
+  return { schemaVersion: 3, id: uid(), name: 'My Mortgage Portfolio', selectedLoanId: loan.id, loans: [loan], properties: [], settings: { householdBudget: '', additional: 2000, strategy: 'highest-rate', rollover: true, custom: {}, target: defaults().target } };
 }
 export function activeLoans(p) { return p.loans.filter(l => l.status === 'active' && (l.config.principal === '' || Number(l.config.principal) !== 0)); }
 export function validatePortfolio(p, { strict = true } = {}) {
   const errors = [];
-  if (!p || p.schemaVersion !== 2 || !Array.isArray(p.loans) || !Array.isArray(p.properties) || !p.settings || typeof p.settings !== 'object') return ['Unsupported or invalid portfolio backup. Expected schemaVersion 2.'];
+  if (!p || ![2,3].includes(p.schemaVersion) || !Array.isArray(p.loans) || !Array.isArray(p.properties) || !p.settings || typeof p.settings !== 'object') return ['Unsupported or invalid portfolio backup. Expected schemaVersion 2 or 3.'];
   if (!p.settings.custom || typeof p.settings.custom !== 'object' || Array.isArray(p.settings.custom) || !['highest-rate','lowest-balance','equal','proportional','custom'].includes(p.settings.strategy) || typeof p.settings.rollover !== 'boolean') errors.push('Invalid portfolio strategy settings.');
   const ids = new Set();
   if (typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || !p.name.trim()) errors.push('Portfolio needs a name and ID.');
@@ -21,6 +23,7 @@ export function validatePortfolio(p, { strict = true } = {}) {
     if (!l || typeof l !== 'object' || !l.config) { errors.push('Each loan needs its own calculation state.'); continue; }
     if (typeof l.id !== 'string' || !l.id.trim() || ['__proto__', 'constructor', 'prototype'].includes(l.id) || ids.has(l.id)) errors.push('Loan IDs must be unique and non-empty.');
     ids.add(l.id);
+    if (p.schemaVersion === 3) errors.push(...validateCalibration(l));
     if (typeof l.config.start !== 'string' || typeof l.config.method !== 'string') errors.push('Loan dates and calculation method need valid text fields.');
     if (typeof l.name !== 'string' || (strict && !l.name.trim())) errors.push('Loan names cannot be empty.');
     for (const key of ['bank', 'propertyName', 'propertyId', 'accountReference', 'notes', 'assumptions']) if (typeof l[key] !== 'string') errors.push(`Invalid ${key} for loan ${l.name || ''}.`);
@@ -60,6 +63,11 @@ export function importBackup(raw) {
   const errors = validatePortfolio(p);
   if (errors.length) throw new Error(errors.join('\n'));
   for (const l of p.loans) if (Number(l.config.principal) === 0 && l.status === 'active') l.status = 'settled';
+  return migratePortfolio(p);
+}
+export function migratePortfolio(value) {
+  const p = clone(value);
+  if (p.schemaVersion === 2) { p.schemaVersion = 3; p.loans.forEach(initializeCalibration); }
   return p;
 }
 export function migrateLegacy(data) {
@@ -73,11 +81,15 @@ export function savePortfolio(p, storage = globalThis.localStorage) {
 }
 export function loadPortfolio(storage = globalThis.localStorage) {
   try {
-    const raw = storage.getItem(PORTFOLIO_KEY);
+    const current = storage.getItem(PORTFOLIO_KEY);
+    const raw = current ?? storage.getItem(V2_KEY);
     if (raw) {
       const p = JSON.parse(raw), errors = validatePortfolio(p, { strict: false });
       if (errors.length) throw new Error(errors.join(' '));
-      return { portfolio: p, restored: true };
+      const migrated = migratePortfolio(p);
+      const changed = p.schemaVersion === 2;
+      if (changed) savePortfolio(migrated, storage);
+      return { portfolio: migrated, restored: true, migrated: changed };
     }
     const legacy = storage.getItem('flexi-mortgage-v1') ?? storage.getItem('singleLoanState');
     if (legacy) {

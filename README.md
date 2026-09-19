@@ -35,7 +35,7 @@ Projected payoff never silently retires a saved loan. Enter actual principal zer
 
 ### Storage migration and privacy
 
-The new key is `flexi-mortgage-portfolio-v2`, with `schemaVersion: 2`. A prior `flexi-mortgage-v1` record, a `singleLoanState` record, or wrapped legacy state migrates into the first loan named **Home Loan** unless it already has a name. All calculation fields are retained. The legacy record is deliberately left untouched. Invalid/future saved schemas block automatic overwriting and show a recovery warning. Subsequent edits and imports use the v2 key.
+The current key is `flexi-mortgage-portfolio-v3`, with `schemaVersion: 3`. Existing v2 portfolios migrate without changing loan settings; their original v2 storage entry remains intact. A prior `flexi-mortgage-v1` record, a `singleLoanState` record, or wrapped legacy state migrates into the first loan named **Home Loan** unless it already has a name. All calculation fields are retained. The legacy record is deliberately left untouched. Invalid/future saved schemas block automatic overwriting and show a recovery warning. Subsequent edits and imports use the v3 key. Each loan retains independent calibration records, profiles, thresholds and profile revisions.
 
 Backups include optional account references and notes. They are downloaded directly from the browser, never uploaded by the app. Import is validated before confirmation and does not replace saved data until the user confirms. Simulations run in a local module worker; unchanged individual schedules are memoized.
 
@@ -188,3 +188,27 @@ Use a local HTTP server instead of opening `index.html` directly with `file://`,
 | `.gitignore` | Excludes generated artifacts and local QA dependencies |
 
 All files were created in an initially empty project. Generated screenshots, browser reports, and print verification output are kept under ignored `artifacts/` and `test-results/`; they are excluded from the production build.
+
+
+## Bank Statement Calibration
+
+Open **Calibration** in portfolio navigation, or **Calibrate Against Bank Statement** on a loan. Enter inclusive statement dates, actual opening/closing principal, interest, payment and annual rate. Basic Mode accepts summary amounts; Advanced Mode adds exact dated payments, lump sums, flexi movements, interest postings, fees, signed adjustments and historical rates. Dated rows replace their matching summary category. The interface warns about missing dates, mismatched totals and unexplained balance changes.
+
+Run Comparison previews the current statement. Save Statement retains it locally, with tested assumptions, results, warnings and timestamps. Lock Statement saves current edits and protects the record; Unlock preserves it. Select saved periods to compare their mean absolute, maximum absolute and mean absolute percentage interest differences. Compare Assumptions ranks 24 configurations by mean absolute difference and labels the closest tested match without claiming to identify a bank formula.
+
+Save Profile appends a timestamped revision. Duplicate and Revert create further revisions. Select an older profile to revert to its assumptions. Use for Comparison does not alter loan settings. **Apply Profile** names the mortgage and assumptions in a confirmation dialog, preserves previous settings in loan history, then updates future calculations. Ordinary loan method and offset controls continue to work after application.
+
+### Exact calibration conventions
+
+- Dates include both the first and last statement day. The engine receives an exclusive boundary on the next day.
+- Actual/365 and fixed 365 are equivalent constant divisors, as are Actual/366 and fixed 366. They are not Actual/Actual; leap days count normally. Equivalent fixed choices are omitted from the comparison grid.
+- Monthly / 12 uses actual-day proration within the loan's payment-day cycle, including rate and balance changes. Monthly traces show real cycle segments, not artificial daily-interest values.
+- Beginning-of-day movements affect that day's interest. End-of-day movements affect the following day. Rate changes always apply at the start of their effective date. Payments cover accrued interest first, then principal.
+- Daily offsets follow dated movements; monthly offsets use the calendar-month opening snapshot. Both have a zero effective-balance floor. Capped is an explicit alias for that existing cap. Ignored disables offsets.
+- Interest posting is an independent reporting ledger: daily, calendar-month end, statement end, or explicit statement posting dates. It does not capitalize unpaid interest; changing posting frequency alone does not change interest. No bank-specific rounding or compounding is inferred.
+- Fees and signed adjustments affect reconciliation only. They neither become interest nor earn interest. The engine closing principal excludes unpaid interest and fees. The separately displayed account balance includes them. The reconciliation uses opening + actual interest + fees/adjustments ? total payments, and flags any residual against the actual closing figure; a bank principal-only closing figure may exclude some components.
+- Match thresholds use amount OR relative difference. They are configurable display indicators. Undefined percentages for nonzero predictions against zero actual interest are omitted from the percentage mean, with the count disclosed.
+
+CSV import uses the downloadable template and validates all rows before a preview. An invalid row prevents the whole import. CSV adds statements; calibration JSON restores records/profiles for matching loan IDs, including locked records, only after a replacement preview. Exports include statement data, results, assumptions, warnings, reconciliation and notes. Full portfolio JSON backups also retain calibration data. Copy and print reports are generated from the current comparison.
+
+Everything runs locally: no statement upload, OCR, analytics or new network dependency. Export files contain personal financial data and remain under your control. See [CALIBRATION_VERIFICATION.md](CALIBRATION_VERIFICATION.md) for recovery evidence, tests and deterministic examples.

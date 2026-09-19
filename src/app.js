@@ -7,6 +7,7 @@ import { firstPayment, nextPayment, parseDate, iso, monthsBetween } from './date
 import { summary, downloadSchedule } from './export.js';
 import { renderBalance, renderComposition, renderSavings } from './charts.js';
 import { getSelectedLoan, saveSelected, loadedPortfolio } from './session.js';
+import { assumptionLabel, CALIBRATION_CONVENTIONS } from './calibrationModel.js';
 
 const $ = selector => document.querySelector(selector);
 const loaded = { state: structuredClone(getSelectedLoan()?.config || defaults()), restored: loadedPortfolio.restored, warning: loadedPortfolio.warning };
@@ -35,6 +36,7 @@ function renderFlexi() {
   $('#demo-label').textContent = state.demo ? 'Demo values' : 'Your values';
   document.querySelectorAll('[data-extra]').forEach(el => { el.classList.toggle('active', Number(el.dataset.extra) === Number(state.extra)); el.setAttribute('aria-pressed', Number(el.dataset.extra) === Number(state.extra)); });
   $('#method-note').textContent = state.method === 'daily' ? 'Actual days × annual rate ÷ 365, including leap days. Your bank’s calculation may differ.' : 'Annual rate ÷ 12 for a full payment cycle. Partial cycles and dated changes are prorated by days.';
+  if (state.calculationAssumptions) $('#method-note').textContent = `Applied calibration assumptions: ${assumptionLabel(state.calculationAssumptions)}. Unpaid interest remains separate without compounding.`;
 }
 function update() {
   renderFlexi();
@@ -120,7 +122,7 @@ function renderSchedule() {
 }
 function renderAssumptions() {
   const first = iso(firstPayment(parseDate(state.start), Number(state.paymentDay)));
-  $('#assumptions').innerHTML = `<ul><li>${state.method === 'daily' ? 'Daily: effective balance × annual rate ÷ 365 × actual elapsed days. Leap days accrue interest using the same 365 divisor.' : 'Monthly: effective balance × annual rate ÷ 12 per complete payment cycle. A partial first cycle and changes within a cycle are prorated by elapsed days in that cycle.'}</li><li>First regular payment: ${fullDate(first)}. Payments start strictly after the calculation start date. Days 29–31 are clamped to the last valid day of shorter months.</li><li>Interest accrues up to, but excluding, each event date. Same-day order: rate changes, flexi movements, parked lump sums, principal lump sums, then monthly payment.</li><li>All loan payments cover accrued interest first. Remaining money reduces principal. Unpaid interest is carried separately without interest-on-interest.</li><li>Flexi offsets ${state.offset ? 'are enabled, with no offset cap' : 'are disabled'}. Funds remain parked until a dated withdrawal; repayments come from separate funds. ${state.overdraft ? 'Negative flexi funds increase the interest-bearing balance at the loan rate.' : 'Withdrawals are capped at available funds.'}</li><li>Variable rows replace both normal and extra payments for that month. The last payment is capped at the outstanding debt. Unused lump sums are not paid.</li><li>No fees, penalties, insurance, taxes, opening unpaid interest, or bank rounding are modeled. Projection limit: 100 years. Durations round up partial months.</li></ul><p class="quiet-note source-links">Background: <a href="https://www.consumerfinance.gov/ask-cfpb/how-does-paying-down-a-mortgage-work-en-1943/" target="_blank" rel="noreferrer">CFPB: mortgage amortization</a>; <a href="https://www.hlb.com.my/en/personal-banking/loans/property-loan/mortgage-plus.html" target="_blank" rel="noreferrer">HLB: an example of a flexi offset</a>. Check your own bank's terms.</p>`;
+  $('#assumptions').innerHTML = `<ul><li>${state.calculationAssumptions ? esc(assumptionLabel(state.calculationAssumptions)) + '. ' + CALIBRATION_CONVENTIONS : state.method === 'daily' ? 'Daily: effective balance × annual rate ÷ 365 × actual elapsed days. Leap days accrue interest using the same 365 divisor.' : 'Monthly: effective balance × annual rate ÷ 12 per complete payment cycle. A partial first cycle and changes within a cycle are prorated by elapsed days in that cycle.'}</li><li>First regular payment: ${fullDate(first)}. Payments start strictly after the calculation start date. Days 29–31 are clamped to the last valid day of shorter months.</li><li>${state.calculationAssumptions?.timing === 'end' ? 'Transactions take effect after their dated day; rates take effect at the beginning of their dated day.' : 'Interest accrues up to, but excluding, each event date.'} Same-day order: rate changes, flexi movements, parked lump sums, principal lump sums, then monthly payment.</li><li>All loan payments cover accrued interest first. Remaining money reduces principal. Unpaid interest is carried separately without interest-on-interest.</li><li>Flexi offsets ${state.offset ? 'are enabled, with no offset cap' : 'are disabled'}. Funds remain parked until a dated withdrawal; repayments come from separate funds. ${state.overdraft ? 'Negative flexi funds increase the interest-bearing balance at the loan rate.' : 'Withdrawals are capped at available funds.'}</li><li>Variable rows replace both normal and extra payments for that month. The last payment is capped at the outstanding debt. Unused lump sums are not paid.</li><li>No fees, penalties, insurance, taxes, opening unpaid interest, or bank rounding are modeled. Projection limit: 100 years. Durations round up partial months.</li></ul><p class="quiet-note source-links">Background: <a href="https://www.consumerfinance.gov/ask-cfpb/how-does-paying-down-a-mortgage-work-en-1943/" target="_blank" rel="noreferrer">CFPB: mortgage amortization</a>; <a href="https://www.hlb.com.my/en/personal-banking/loans/property-loan/mortgage-plus.html" target="_blank" rel="noreferrer">HLB: an example of a flexi offset</a>. Check your own bank's terms.</p>`;
 }
 function renderEditors() {
   const defs = {
@@ -147,7 +149,15 @@ function applyTotal(total) {
 $('#loan-form').addEventListener('submit', event => event.preventDefault());
 document.addEventListener('input', event => {
   const el = event.target;
-  if (formFields.includes(el.id)) { state[el.id] = el.id === 'offset' ? el.value === 'true' : el.value; changed(); }
+  if (formFields.includes(el.id)) {
+    state[el.id] = el.id === 'offset' ? el.value === 'true' : el.value;
+    if(state.calculationAssumptions){
+      const a=state.calculationAssumptions;
+      if(el.id==='method'){a.basis=el.value;a.dayCount=el.value==='monthly'?'Monthly / 12':a.dayCount==='Monthly / 12'?'Actual/365':a.dayCount;}
+      if(el.id==='offset')a.flexi=state.offset?'daily':'ignored';
+    }
+    changed();
+  }
   else if (el.dataset.list) {
     state[el.dataset.list][Number(el.dataset.index)][el.dataset.prop] = el.type === 'checkbox' ? el.checked : el.value; changed();
   } else if (el.id === 'overdraft') { state.overdraft = el.checked; changed(); }

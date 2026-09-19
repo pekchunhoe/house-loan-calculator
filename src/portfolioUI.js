@@ -3,6 +3,7 @@ import { getPortfolio, getSelectedLoan, commit, replacePortfolio, subscribe, loa
 import { createLoan, activeLoans, clone, uid, COLORS, exportBackup, importBackup } from './storage.js';
 import { defaults } from './persistence.js';
 import { markup } from './portfolioMarkup.js';
+import { mountCalibration } from './calibrationUI.js';
 import { mountLoanIdentity, renderLoanIdentity } from './loanUI.js';
 import { portfolioChart } from './portfolioCharts.js';
 import { money, monthDate, duration, escapeHtml as esc } from './format.js';
@@ -15,7 +16,7 @@ const individual = document.createElement('div'); individual.id = 'individual-vi
 for (const child of [...page.children]) if (child.tagName !== 'FOOTER') individual.append(child);
 page.prepend(individual);
 const shell = document.createElement('div'); shell.className = 'portfolio-switcher';
-shell.innerHTML = `<button class="text-button" data-paction="home">← My Housing Loans</button><span id="p-selected-label"></span><button class="button secondary" data-paction="add">+ Add Housing Loan</button>`;
+shell.innerHTML = `<button class="text-button" data-paction="home">← My Housing Loans</button><span id="p-selected-label"></span><button class="button secondary" data-calibrate-current>Calibrate Against Bank Statement</button><button class="button secondary" data-paction="add">+ Add Housing Loan</button>`;
 page.prepend(shell);
 const portfolioView = document.createElement('div'); portfolioView.id = 'portfolio-view'; portfolioView.innerHTML = markup; portfolioView.hidden = true; individual.before(portfolioView);
 const dialog = document.createElement('dialog'); dialog.id = 'portfolio-dialog'; dialog.innerHTML = '<h2 id="p-dialog-title"></h2><p id="p-dialog-text"></p><div class="dialog-actions"><button class="button secondary" data-paction="cancel">Cancel</button><button class="button primary" data-paction="confirm">Confirm</button></div>'; document.body.append(dialog);
@@ -42,6 +43,7 @@ function switchTab(next) {
   tab = next; individual.hidden = true; portfolioView.hidden = false; shell.hidden = true; document.body.classList.add('portfolio-mode');
   document.querySelectorAll('[data-panel]').forEach(el => el.hidden = el.dataset.panel !== tab);
   document.querySelectorAll('[data-tab]').forEach(el => { el.classList.toggle('active', el.dataset.tab === tab); el.setAttribute('aria-current', el.dataset.tab === tab ? 'page' : 'false'); });
+  if (next === 'calibration') calibration.render();
   renderControls(); refresh(); window.scrollTo(0, 0);
 }
 function openLoan(id, edit = false) {
@@ -115,7 +117,7 @@ function renderCashflow() {
 }
 function renderCards() {
   const p = getPortfolio(), visible = p.loans.filter(l => $('#p-show-inactive').checked || l.status === 'active');
-  $('#p-loan-cards').innerHTML = visible.length ? visible.map(l => `<article class="card mortgage-loan-card" style="border-top-color:${l.color}"><div class="section-heading"><h3>${dot(l)}${esc(l.name || 'Unnamed loan')}</h3><span class="badge">${l.status}</span></div><p class="loan-bank">${esc(l.bank || 'Bank not set')}${l.propertyId || l.propertyName ? ' · ' + esc(p.properties.find(x => x.id === l.propertyId)?.name || l.propertyName) : ''}</p><strong class="loan-principal">${money(Number(l.config.principal))}</strong><div class="loan-card-facts"><span>Rate</span><strong>${esc(l.config.rate)}% p.a.</strong><span>Normal payment</span><strong>${money(Number(l.config.normal))}</strong><span>Extra payment</span><strong>${money(Number(l.config.extra))}</strong><span>Estimated settlement</span><strong>${l.status === 'active' ? overview?.results[l.id] ? dateLabel(overview.results[l.id]) : 'Calculating…' : l.status === 'settled' ? 'Settled' : 'Archived'}</strong></div><div class="loan-actions"><button class="button primary" data-open="${esc(l.id)}">View Details</button><button class="button secondary" data-edit="${esc(l.id)}">Edit</button><button class="text-button" data-duplicate="${esc(l.id)}">Duplicate</button><button class="text-button" data-archive="${esc(l.id)}">${l.status === 'archived' ? 'Restore' : 'Archive'}</button><button class="text-button danger" data-delete="${esc(l.id)}">Delete</button></div></article>`).join('') : '<div class="card empty-state">No loans to show. Add a mortgage, or show settled and archived loans.</div>';
+  $('#p-loan-cards').innerHTML = visible.length ? visible.map(l => `<article class="card mortgage-loan-card" style="border-top-color:${l.color}"><div class="section-heading"><h3>${dot(l)}${esc(l.name || 'Unnamed loan')}</h3><span class="badge">${l.status}</span></div><p class="loan-bank">${esc(l.bank || 'Bank not set')}${l.propertyId || l.propertyName ? ' · ' + esc(p.properties.find(x => x.id === l.propertyId)?.name || l.propertyName) : ''}</p><strong class="loan-principal">${money(Number(l.config.principal))}</strong><div class="loan-card-facts"><span>Rate</span><strong>${esc(l.config.rate)}% p.a.</strong><span>Normal payment</span><strong>${money(Number(l.config.normal))}</strong><span>Extra payment</span><strong>${money(Number(l.config.extra))}</strong><span>Estimated settlement</span><strong>${l.status === 'active' ? overview?.results[l.id] ? dateLabel(overview.results[l.id]) : 'Calculating…' : l.status === 'settled' ? 'Settled' : 'Archived'}</strong></div><div class="loan-actions">${l.status === 'active' ? `<button class="button secondary" data-calibrate="${esc(l.id)}">Calibrate Against Bank Statement</button>` : ''}<button class="button primary" data-open="${esc(l.id)}">View Details</button><button class="button secondary" data-edit="${esc(l.id)}">Edit</button><button class="text-button" data-duplicate="${esc(l.id)}">Duplicate</button><button class="text-button" data-archive="${esc(l.id)}">${l.status === 'archived' ? 'Restore' : 'Archive'}</button><button class="text-button danger" data-delete="${esc(l.id)}">Delete</button></div></article>`).join('') : '<div class="card empty-state">No loans to show. Add a mortgage, or show settled and archived loans.</div>';
 }
 function renderLoanTable() {
   if (!overview) return;
@@ -244,8 +246,9 @@ $('#p-import-file').addEventListener('change',async event => {
   } catch(error) { status(error.message,true); notice(error.message); }
   finally { event.target.value = ''; }
 });
-window.addEventListener('beforeprint',() => { if (!portfolioView.hidden && overview) { print.innerHTML = portfolioPrint(getPortfolio(),overview); document.body.classList.add('portfolio-print'); } });
+window.addEventListener('beforeprint',() => { if (!portfolioView.hidden && tab !== 'calibration' && overview) { print.innerHTML = portfolioPrint(getPortfolio(),overview); document.body.classList.add('portfolio-print'); } });
 window.addEventListener('afterprint',() => document.body.classList.remove('portfolio-print'));
 let resizeTimer; window.addEventListener('resize',() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!portfolioView.hidden && tab === 'dashboard' && overview) portfolioChart($('#p-chart'),getPortfolio(),overview,hiddenLines); },150); });
-if (getPortfolio().loans.length === 1 && getSelectedLoan()) { openLoan(getSelectedLoan().id); if (loadedPortfolio.migrated) notice('Your saved mortgage is now Home Loan. Your original saved data has been retained.'); }
+const calibration = mountCalibration($('[data-panel="calibration"]'),()=>switchTab('calibration'),()=>{if(getSelectedLoan()){selectLoanState(getSelectedLoan().config);renderLoanIdentity();}});
+if (getPortfolio().loans.length === 1 && getSelectedLoan()) { openLoan(getSelectedLoan().id); if (loadedPortfolio.migrated) notice('Your saved mortgage has been migrated. Your original saved data has been retained.'); }
 else switchTab('dashboard');
