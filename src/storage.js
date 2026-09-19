@@ -1,4 +1,5 @@
 import { initializeCalibration, validateCalibration } from './calibrationStore.js';
+import { validateFixedScenarios } from './fixedCommitmentModel.js';
 import { defaults } from './persistence.js';
 import { validate } from './engine.js';
 export const PORTFOLIO_KEY = 'flexi-mortgage-portfolio-v3';
@@ -18,6 +19,7 @@ export function validatePortfolio(p, { strict = true } = {}) {
   if (!p || ![2,3].includes(p.schemaVersion) || !Array.isArray(p.loans) || !Array.isArray(p.properties) || !p.settings || typeof p.settings !== 'object') return ['Unsupported or invalid portfolio backup. Expected schemaVersion 2 or 3.'];
   if (!p.settings.custom || typeof p.settings.custom !== 'object' || Array.isArray(p.settings.custom) || !['highest-rate','lowest-balance','equal','proportional','custom'].includes(p.settings.strategy) || typeof p.settings.rollover !== 'boolean') errors.push('Invalid portfolio strategy settings.');
   const ids = new Set();
+  errors.push(...validateFixedScenarios(p.fixedCommitmentScenarios));
   if (typeof p.id !== 'string' || !p.id || typeof p.name !== 'string' || !p.name.trim()) errors.push('Portfolio needs a name and ID.');
   for (const l of p.loans) {
     if (!l || typeof l !== 'object' || !l.config) { errors.push('Each loan needs its own calculation state.'); continue; }

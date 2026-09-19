@@ -4,6 +4,7 @@ import { createLoan, activeLoans, clone, uid, COLORS, exportBackup, importBackup
 import { defaults } from './persistence.js';
 import { markup } from './portfolioMarkup.js';
 import { mountCalibration } from './calibrationUI.js';
+import { mountFixedCommitment } from './fixedCommitmentUI.js';
 import { mountLoanIdentity, renderLoanIdentity } from './loanUI.js';
 import { portfolioChart } from './portfolioCharts.js';
 import { money, monthDate, duration, escapeHtml as esc } from './format.js';
@@ -60,6 +61,7 @@ function addLoan(source) {
   p.loans.push(loan); openLoan(loan.id, true); notice('Loan added. Edit the demo values for this mortgage.');
 }
 function renderControls() {
+  fixedCommitment.renderControls();
   const p = getPortfolio(), settings = p.settings, loans = activeLoans(p);
   const oldLump = Object.fromEntries([...document.querySelectorAll('[data-lump-custom]')].map(el => [el.dataset.lumpCustom,el.value]));
   const oldRates = Object.fromEntries([...document.querySelectorAll('[data-rate-custom]')].map(el => [el.dataset.rateCustom,el.value]));
@@ -250,5 +252,7 @@ window.addEventListener('beforeprint',() => { if (!portfolioView.hidden && tab !
 window.addEventListener('afterprint',() => document.body.classList.remove('portfolio-print'));
 let resizeTimer; window.addEventListener('resize',() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!portfolioView.hidden && tab === 'dashboard' && overview) portfolioChart($('#p-chart'),getPortfolio(),overview,hiddenLines); },150); });
 const calibration = mountCalibration($('[data-panel="calibration"]'),()=>switchTab('calibration'),()=>{if(getSelectedLoan()){selectLoanState(getSelectedLoan().config);renderLoanIdentity();}});
+const fixedRoot = document.createElement('div'); fixedRoot.id = 'fixed-commitment'; $('[data-panel="strategies"]').prepend(fixedRoot);
+const fixedCommitment = mountFixedCommitment(fixedRoot, run);
 if (getPortfolio().loans.length === 1 && getSelectedLoan()) { openLoan(getSelectedLoan().id); if (loadedPortfolio.migrated) notice('Your saved mortgage has been migrated. Your original saved data has been retained.'); }
 else switchTab('dashboard');

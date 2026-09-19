@@ -58,7 +58,7 @@ export function* loanSimulation(config, { maxMonths = 1200, endDate, includeRows
   let postingAccrued = 0;
   const c = config, start = parseDate(c.start), day = Number(c.paymentDay);
   let principal = Number(c.principal), flexi = Number(c.flexi), rate = Number(c.rate) / 100;
-  let accrued = 0, interestPaid = 0, interestAccrued = 0, totalPayments = 0, paymentCount = 0, monthlyCount = 0, finalPayment = 0;
+  let accrued = 0, interestPaid = 0, interestAccrued = 0, totalPayments = 0, paymentCount = 0, monthlyCount = 0, finalPayment = 0, recurringPayments = 0;
   let current = start, due = firstPayment(start, day), cycleStart = previousPayment(due, day);
   const limit = endDate ? parseDate(endDate) : Infinity;
   const warnings = new Set(), rows = [];
@@ -117,8 +117,13 @@ export function* loanSimulation(config, { maxMonths = 1200, endDate, includeRows
     const nextEvent = events[index]?.time ?? Infinity;
     const at = Math.min(due + delay, nextEvent, limit);
     if (at < current || !Number.isFinite(at)) break;
-    const addedPayment = Number((yield { date: iso(at), time: at, monthly: at === due + delay, due: iso(due + delay), principal, accrued, flexi, rate: rate * 100 }) ?? 0);
+    // Numeric input remains the original additional-payment API. The optional
+    // extra override lets a budget coordinator replace only discretionary cash.
+    const instruction = (yield { date: iso(at), time: at, monthly: at === due + delay, due: iso(due + delay), paymentMonth: iso(due).slice(0, 7), principal, accrued, flexi, rate: rate * 100, recurringPayments }) ?? 0;
+    const addedPayment = Number(typeof instruction === 'object' ? instruction.additional ?? 0 : instruction);
+    const extraOverride = typeof instruction === 'object' ? instruction.extra : undefined;
     if (!Number.isFinite(addedPayment) || addedPayment < 0) throw new Error('Additional payment must be non-negative.');
+    if (extraOverride !== undefined && (!Number.isFinite(extraOverride) || extraOverride < 0)) throw new Error('Extra payment must be non-negative.');
     accrue(at);
     while (events[index]?.time === at && (principal > EPS || accrued > EPS)) {
       const event = events[index++];
@@ -134,7 +139,9 @@ export function* loanSimulation(config, { maxMonths = 1200, endDate, includeRows
     }
     if (at === due + delay && (principal > EPS || accrued > EPS)) {
       const override = variables.get(iso(due).slice(0, 7));
-      record('Monthly payment', Number(override?.normal ?? c.normal), Number(override?.extra ?? c.extra) + addedPayment);
+      const beforePayment = totalPayments;
+      record('Monthly payment', Number(override?.normal ?? c.normal), (extraOverride ?? Number(override?.extra ?? c.extra)) + addedPayment);
+      recurringPayments += totalPayments - beforePayment;
       monthlyCount++;
       const debt = principal + accrued;
       stagnant = debt >= previousDebt - EPS ? stagnant + 1 : 0;
